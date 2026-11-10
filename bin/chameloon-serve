@@ -1,0 +1,68 @@
+#!/usr/bin/env php
+<?php
+// Self-host spaces: chameloon-serve serve <folder with one sub-folder per space> [--port 8787] [--token secret]
+// Every sub-folder with a space.json is served at /<name>; add "<your address>/<name>" in the app.
+// For spaces with "auth": "device":
+//   chameloon-serve invite  <folder> <space> [--uses 1|unlimited] [--note "Anna's phone"]   a code to let one more phone in
+//   chameloon-serve devices <folder> <space>                                                the phones that are in
+//   chameloon-serve revoke  <folder> <space> <key or phone id prefix>                       shut one phone out
+declare(strict_types=1);
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $file) {
+    if (is_file($file)) {
+        require $file;
+        break;
+    }
+}
+class_exists(Chameloon\Space\Auth::class) || require __DIR__ . '/../src/autoload.php';
+
+use Chameloon\Space\Auth;
+
+$args = array_slice($argv, 1);
+$command = in_array($args[0] ?? '', ['serve', 'invite', 'devices', 'revoke'], true) ? array_shift($args) : 'serve';
+$flag = static function (string $name) use (&$args): ?string {
+    $i = array_search("--$name", $args, true);
+    if ($i === false) {
+        return null;
+    }
+    $value = $args[$i + 1] ?? null;
+    array_splice($args, $i, 2);
+    return $value;
+};
+$port = (int) ($flag('port') ?? getenv('PORT') ?: 8787);
+$token = $flag('token') ?? (getenv('TOKEN') ?: null);
+$uses = $flag('uses');
+$note = $flag('note');
+$root = realpath($args[0] ?? getenv('SPACES') ?: 'spaces') ?: ($args[0] ?? 'spaces');
+
+if ($command !== 'serve') {
+    $dir = "$root/" . ($args[1] ?? '');
+    if (!isset($args[1]) || !is_file("$dir/space.json")) {
+        fwrite(STDERR, 'No space "' . ($args[1] ?? '') . "\" in $root.\n");
+        exit(1);
+    }
+    if ($command === 'invite') {
+        echo Auth::newInvite($dir, $uses === 'unlimited' ? null : (int) ($uses ?? 1), $note), "\n";
+    } elseif ($command === 'devices') {
+        foreach (Auth::read($dir)['devices'] ?? [] as $d) {
+            echo substr($d['key'], 0, 16), '…  phone ', $d['device'] ?? '?', '  since ', $d['added'], isset($d['note']) && $d['note'] !== '' ? "  ({$d['note']})" : '', "\n";
+        }
+    } else {
+        echo 'revoked ', Auth::revoke($dir, $args[2] ?? "\0"), " phone(s)\n";
+    }
+    exit(0);
+}
+
+if (!is_dir($root)) {
+    fwrite(STDERR, "No folder $root. Usage: chameloon-serve <spaces folder> [--port 8787] [--token secret]\n");
+    exit(1);
+}
+$names = array_values(array_filter(scandir($root), static fn($n) => $n[0] !== '.' && is_file("$root/$n/space.json")));
+echo 'Serving ', count($names), " space(s) from $root on port $port", $token ? ' (token required)' : '', ":\n";
+foreach ($names as $n) {
+    echo "  /$n\n";
+}
+
+$env = ['SPACES' => $root, 'TOKEN' => $token ?? ''] + getenv();
+$process = proc_open([PHP_BINARY, '-S', "0.0.0.0:$port", __DIR__ . '/router.php'], [STDIN, STDOUT, STDERR], $pipes, null, $env);
+exit(proc_close($process));

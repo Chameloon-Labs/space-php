@@ -1,0 +1,19 @@
+{
+  "name": "chameloon-labs/space",
+  "description": "Server SDK for Chameloon spaces: serve a folder of spaces, sync them with the app, write bots in PHP.",
+  "type": "library",
+  "license": "MIT",
+  "homepage": "https://chameloon.com/docs/",
+  "require": {
+    "php": ">=8.1",
+    "ext-json": "*",
+    "ext-openssl": "*"
+  },
+  "autoload": {
+    "psr-4": { "Chameloon\\Space\\": "src/" }
+  },
+  "bin": ["bin/chameloon-serve"],
+  "scripts": {
+    "test": "php tests/run.php"
+  }
+}
